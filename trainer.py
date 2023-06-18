@@ -71,22 +71,34 @@ class PongTrainer:
         discounted_future_rewards = torch.empty(len(rewards)).to(self.device)
 
         # Compute `discounted_future_reward` for each timestep by iterating backwards
-        # from end of episode to beginning
+        # from end of episode to beginning because the future reward for a given timestep
+        # depends on the rewards of all the timesteps that come after it.
         discounted_future_reward = 0
-        for t in range(len(rewards) - 1, -1, -1):
+        for timestep in range(len(rewards) - 1, -1, -1):
             # If `rewards[t] != 0`, we are at game boundary (win or loss) so we # reset
             # `discounted_future_reward` to `0` (this is pong specific!).
-            if rewards[t] != 0:
+            if rewards[timestep] != 0:
                 discounted_future_reward = 0
 
+            # Calculate discounted reward based on definition of discounted reward.
             discounted_future_reward = (
-                rewards[t] + self.discount_factor * discounted_future_reward
+                rewards[timestep] + self.discount_factor * discounted_future_reward
             )
-            discounted_future_rewards[t] = discounted_future_reward
+            discounted_future_rewards[timestep] = discounted_future_reward
 
         return discounted_future_rewards
 
     def load_model(self, model_path: str) -> tuple[str, int]:
+        """
+        Load the model from a checkpoint.
+
+        Args:
+            model_path: The path to the model checkpoint.
+
+        Returns:
+            start_time: The start time of the model.
+            last_batch: The last batch that was trained.
+        """
         start_time = datetime.datetime.now().strftime("%H.%M.%S-%m.%d.%Y")
         last_batch = -1
         if os.path.exists(model_path):
@@ -111,20 +123,24 @@ class PongTrainer:
         observation, _ = self.env.reset()
         prev_x = self.preprocess(observation)
 
-        action_chosen_log_probs = []
-        rewards = []
+        action_chosen_log_probs: list[torch.Tensor] = []
+        rewards: list[torch.Tensor] = []
 
         done = False
         timestamp = 0
 
         while not done:
             cur_x = self.preprocess(observation)
+            # Calculate the difference of the current and previous observation.
             x = cur_x - prev_x
             prev_x = cur_x
 
+            # Forward pass through the model to get the probability of moving up.
             prob_up = self.model(x)
             action = UP if random.random() < prob_up else DOWN
 
+            # Calculate the log probability of the action chosen for policy gradient
+            # update step.
             action_chosen_prob = prob_up if action == UP else (1 - prob_up)
             action_chosen_log_probs.append(
                 torch.log(action_chosen_prob).to(self.device)
@@ -140,14 +156,26 @@ class PongTrainer:
 
         discounted_future_rewards = self.calc_discounted_future_rewards(rewards)
 
+        # Normalize rewards to stabilize the training.
         discounted_future_rewards = (
             discounted_future_rewards - discounted_future_rewards.mean()
         ) / discounted_future_rewards.std()
 
+        # Calculate policy loss using the policy gradient loss formula.
+        # Measures how much better the action taken was compared to the average action
+        # at that state.
         loss = -(discounted_future_rewards * action_chosen_log_probs).sum()
         return loss, rewards.sum()
 
     def play(self, stop_frame: int = -1) -> None:
+        """
+        Play the game using the model. The game will be rendered if `mode` is set to
+        `render` and will be animated if `mode` is set to `animation`.
+
+        Args:
+            stop_frame: The frame to stop at. If set to -1, the game will play until
+                        the end.
+        """
         self.load_model("checkpoint.pth")
         observation, _ = self.env.reset()
         prev_x = self.preprocess(observation)
