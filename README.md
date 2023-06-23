@@ -4,6 +4,8 @@ This repository contains the code for the Pong RL project.
 The goal of this project is to train an agent to play the game of Pong using reinforcement learning.
 The agent is trained using the (REINFORCE)[https://link.springer.com/content/pdf/10.1007/BF00992696.pdf] algorithm.
 
+![Agent playing Pong](./animation.gif)
+
 ## Installation
 
 To install the required packages, run the following command:
